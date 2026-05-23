@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 )
 
 func run() int {
@@ -30,11 +31,13 @@ func run() int {
 	fs.Var(&headers, "H", "HTTP header, e.g. 'Authorization: Bearer token' (repeatable)")
 	fs.BoolVar(&subscription, "subscription", false, "Run query as a subscription")
 
-	if err := fs.Parse(os.Args[1:]); err != nil {
+	// Pull the endpoint out before flag parsing so flags may appear in any position.
+	endpoint, flagArgs := extractEndpoint(os.Args[1:])
+
+	if err := fs.Parse(flagArgs); err != nil {
 		return 1
 	}
 
-	endpoint := fs.Arg(0)
 	if endpoint == "" {
 		fs.Usage()
 		return 1
@@ -52,4 +55,15 @@ func run() int {
 		return runSubscription(ctx, endpoint, query, variables, headers)
 	}
 	return runQuery(ctx, endpoint, query, variables, headers)
+}
+
+// extractEndpoint separates the first http/https URL from the arg list so that
+// flags may appear before or after the endpoint.
+func extractEndpoint(args []string) (endpoint string, rest []string) {
+	for i, a := range args {
+		if strings.HasPrefix(a, "http://") || strings.HasPrefix(a, "https://") {
+			return a, append(args[:i:i], args[i+1:]...)
+		}
+	}
+	return "", args
 }
