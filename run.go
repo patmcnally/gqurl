@@ -56,7 +56,13 @@ func run() int {
 		return 1
 	}
 
-	// Merge headers: file headers first so that -H flags take precedence.
+	// Merge headers lowest-to-highest precedence: defaults < file < -H flags.
+	defaults := headerFlag{
+		"apollographql-client-name: gqurl",
+		"apollographql-client-version: " + version,
+	}
+	headers = append(defaults, headers...)
+
 	if headerFile != "" {
 		fileHeaders, err := loadHeaderFile(headerFile)
 		if err != nil {
