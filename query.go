@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -29,12 +30,14 @@ func runQuery(ctx context.Context, endpoint, query, variables string, headers he
 		})
 
 	data, err := client.ExecRaw(ctx, query, vars)
+	// Print data first — partial results arrive alongside errors.
+	if len(data) > 0 {
+		printJSON(data)
+	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		printGraphQLError(err)
 		return 1
 	}
-
-	printJSON(data)
 	return 0
 }
 
@@ -57,7 +60,7 @@ func runSubscription(ctx context.Context, endpoint, query, variables string, hea
 
 	_, err = client.Exec(query, vars, func(data []byte, err error) error {
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "subscription error:", err)
+			printGraphQLError(err)
 			return nil
 		}
 		printJSON(data)
@@ -76,11 +79,34 @@ func runSubscription(ctx context.Context, endpoint, query, variables string, hea
 		return 0
 	case err = <-errCh:
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
+			printGraphQLError(err)
 			return 1
 		}
 		return 0
 	}
+}
+
+// printGraphQLError writes a human-readable error to stderr. It understands
+// graphql.Errors (structured GraphQL errors) and graphql.NetworkError
+// (non-2xx HTTP responses), falling back to a plain message for anything else.
+func printGraphQLError(err error) {
+	if gqlErrs, ok := errors.AsType[graphql.Errors](err); ok {
+		for _, e := range gqlErrs {
+			loc := ""
+			if len(e.Locations) > 0 {
+				loc = fmt.Sprintf(" (line %d, col %d)", e.Locations[0].Line, e.Locations[0].Column)
+			}
+			fmt.Fprintf(os.Stderr, "error: %s%s\n", e.Message, loc)
+		}
+		return
+	}
+
+	if netErr, ok := errors.AsType[graphql.NetworkError](err); ok {
+		fmt.Fprintf(os.Stderr, "error: HTTP %d: %s\n", netErr.StatusCode(), netErr.Body())
+		return
+	}
+
+	fmt.Fprintln(os.Stderr, "error:", err)
 }
 
 func parseVariables(s string) (map[string]any, error) {

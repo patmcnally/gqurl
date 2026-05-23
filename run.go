@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -17,6 +18,8 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "flags:")
 		fs.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "pass -q @- to read the query from stdin, or -q @file to read from a file")
 	}
 
 	var (
@@ -26,7 +29,7 @@ func run() int {
 		subscription bool
 	)
 
-	fs.StringVar(&query, "q", "", "GraphQL query or mutation")
+	fs.StringVar(&query, "q", "", "GraphQL query or mutation (use @- for stdin, @file for a file)")
 	fs.StringVar(&variables, "v", "{}", "JSON variables object")
 	fs.Var(&headers, "H", "HTTP header, e.g. 'Authorization: Bearer token' (repeatable)")
 	fs.BoolVar(&subscription, "subscription", false, "Run query as a subscription")
@@ -48,13 +51,44 @@ func run() int {
 		return 1
 	}
 
+	resolvedQuery, err := resolveQuery(query)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	if subscription {
-		return runSubscription(ctx, endpoint, query, variables, headers)
+		return runSubscription(ctx, endpoint, resolvedQuery, variables, headers)
 	}
-	return runQuery(ctx, endpoint, query, variables, headers)
+	return runQuery(ctx, endpoint, resolvedQuery, variables, headers)
+}
+
+// resolveQuery returns the query string, reading from stdin or a file when the
+// value begins with @.
+func resolveQuery(q string) (string, error) {
+	if !strings.HasPrefix(q, "@") {
+		return q, nil
+	}
+	src := q[1:]
+	var r io.Reader
+	if src == "-" {
+		r = os.Stdin
+	} else {
+		f, err := os.Open(src)
+		if err != nil {
+			return "", fmt.Errorf("opening query file: %w", err)
+		}
+		defer f.Close()
+		r = f
+	}
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("reading query: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // extractEndpoint separates the first http/https URL from the arg list so that
