@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-
 )
 
 func run() int {
@@ -24,12 +23,15 @@ func run() int {
 	}
 
 	var (
-		query        string
-		variables    string
-		headers      headerFlag
-		headerFile   string
-		outputFile   string
-		subscription bool
+		query         string
+		variables     string
+		headers       headerFlag
+		headerFile    string
+		outputFile    string
+		operationName string
+		compact       bool
+		introspect    bool
+		subscription  bool
 	)
 
 	fs.StringVar(&query, "q", "", "GraphQL query or mutation (use @- for stdin, @file for a file)")
@@ -37,6 +39,9 @@ func run() int {
 	fs.Var(&headers, "H", "HTTP header, e.g. 'Authorization: Bearer token' (repeatable)")
 	fs.StringVar(&headerFile, "header-file", "", "JSON file of {\"Header\": \"value\"} pairs (values support $ENV expansion)")
 	fs.StringVar(&outputFile, "o", "", "Write JSON output to file instead of stdout")
+	fs.StringVar(&operationName, "n", "", "Operation name for multi-operation documents")
+	fs.BoolVar(&compact, "c", false, "Compact output (no pretty-printing)")
+	fs.BoolVar(&introspect, "introspect", false, "Fetch and print the schema via introspection")
 	fs.BoolVar(&subscription, "subscription", false, "Run query as a subscription")
 
 	// Pull the endpoint out before flag parsing so flags may appear in any position.
@@ -51,7 +56,7 @@ func run() int {
 		return 1
 	}
 
-	if query == "" {
+	if !introspect && query == "" {
 		fmt.Fprintln(os.Stderr, "error: -q query is required")
 		return 1
 	}
@@ -72,12 +77,6 @@ func run() int {
 		headers = append(fileHeaders, headers...)
 	}
 
-	resolvedQuery, err := resolveQuery(query)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
-	}
-
 	out, err := openOutput(outputFile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -88,10 +87,20 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	if subscription {
-		return runSubscription(ctx, endpoint, resolvedQuery, variables, headers, out)
+	if introspect {
+		return runIntrospect(ctx, endpoint, headers, out, compact)
 	}
-	return runQuery(ctx, endpoint, resolvedQuery, variables, headers, out)
+
+	resolvedQuery, err := resolveQuery(query)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+
+	if subscription {
+		return runSubscription(ctx, endpoint, resolvedQuery, variables, headers, out, compact, operationName)
+	}
+	return runQuery(ctx, endpoint, resolvedQuery, variables, headers, out, compact, operationName)
 }
 
 // openOutput returns a write-closer for the given path, or a no-op-close

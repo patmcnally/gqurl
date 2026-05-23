@@ -72,7 +72,7 @@ func TestDefaultApolloHeaders(t *testing.T) {
 			"apollographql-client-version: " + version,
 		}
 		var buf bytes.Buffer
-		runQuery(t.Context(), srv.URL, "{ ok }", "{}", defaults, &buf)
+		runQuery(t.Context(), srv.URL, "{ ok }", "{}", defaults, &buf, false, "")
 
 		is.Equal(t, "gqurl", gotName)
 		is.Equal(t, version, gotVer)
@@ -91,7 +91,7 @@ func TestDefaultApolloHeaders(t *testing.T) {
 			headerFlag{"apollographql-client-name: my-app"}...,
 		)
 		var buf bytes.Buffer
-		runQuery(t.Context(), srv.URL, "{ ok }", "{}", merged, &buf)
+		runQuery(t.Context(), srv.URL, "{ ok }", "{}", merged, &buf, false, "")
 
 		is.Equal(t, "my-app", gotName)
 	})

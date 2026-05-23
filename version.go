@@ -1,3 +1,4 @@
 package main
 
-const version = "0.1.0"
+// version is overridden at build time via -X main.version=<tag> by GoReleaser.
+var version = "dev"

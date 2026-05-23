@@ -23,7 +23,6 @@ func TestParseVariables(t *testing.T) {
 		{name: "empty string returns nil map", input: "", wantNil: true},
 		{name: "empty braces returns nil map", input: "{}", wantNil: true},
 		{name: "valid JSON object returns map", input: `{"id": "42"}`, wantKey: "id", wantVal: "42"},
-		// nested map omitted from table — tested separately below
 		{name: "invalid JSON returns error", input: `{bad json}`, wantErr: true},
 	}
 
@@ -89,14 +88,21 @@ func TestParseHeaders(t *testing.T) {
 func TestPrintJSON(t *testing.T) {
 	t.Run("pretty-prints valid JSON", func(t *testing.T) {
 		var buf bytes.Buffer
-		printJSON(&buf, []byte(`{"name":"Pat","age":42}`))
+		printJSON(&buf, []byte(`{"name":"Pat","age":42}`), false)
 		is.True(t, strings.Contains(buf.String(), "\n"))
 		is.True(t, strings.Contains(buf.String(), `"name": "Pat"`))
 	})
 
+	t.Run("compact mode outputs single line", func(t *testing.T) {
+		var buf bytes.Buffer
+		printJSON(&buf, []byte(`{"name":"Pat","age":42}`), true)
+		lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+		is.Equal(t, 1, len(lines))
+	})
+
 	t.Run("passes through invalid JSON as-is", func(t *testing.T) {
 		var buf bytes.Buffer
-		printJSON(&buf, []byte(`not json`))
+		printJSON(&buf, []byte(`not json`), false)
 		is.True(t, strings.Contains(buf.String(), "not json"))
 	})
 }
@@ -108,7 +114,7 @@ func TestRunQuery(t *testing.T) {
 		})
 
 		var buf bytes.Buffer
-		code := runQuery(t.Context(), srv.URL, "{ hello }", "{}", nil, &buf)
+		code := runQuery(t.Context(), srv.URL, "{ hello }", "{}", nil, &buf, false, "")
 		is.Equal(t, 0, code)
 		is.True(t, strings.Contains(buf.String(), `"hello": "world"`))
 	})
@@ -119,7 +125,7 @@ func TestRunQuery(t *testing.T) {
 		})
 
 		var buf bytes.Buffer
-		code := runQuery(t.Context(), srv.URL, "{ bogus }", "{}", nil, &buf)
+		code := runQuery(t.Context(), srv.URL, "{ bogus }", "{}", nil, &buf, false, "")
 		is.Equal(t, 1, code)
 		is.Equal(t, "", buf.String())
 	})
@@ -133,7 +139,7 @@ func TestRunQuery(t *testing.T) {
 		})
 
 		var buf bytes.Buffer
-		code := runQuery(t.Context(), srv.URL, "{ partial bogus }", "{}", nil, &buf)
+		code := runQuery(t.Context(), srv.URL, "{ partial bogus }", "{}", nil, &buf, false, "")
 		is.Equal(t, 1, code)
 		is.True(t, strings.Contains(buf.String(), `"partial": "result"`))
 	})
@@ -150,7 +156,7 @@ func TestRunQuery(t *testing.T) {
 		})
 
 		var buf bytes.Buffer
-		code := runQuery(t.Context(), srv.URL, "query Q($id: ID!) { node(id: $id) { id } }", `{"id":"99"}`, nil, &buf)
+		code := runQuery(t.Context(), srv.URL, "query Q($id: ID!) { node(id: $id) { id } }", `{"id":"99"}`, nil, &buf, false, "")
 		is.Equal(t, 0, code)
 		is.Equal(t, "99", gotVars["id"])
 	})
@@ -163,7 +169,7 @@ func TestRunQuery(t *testing.T) {
 		})
 
 		var buf bytes.Buffer
-		code := runQuery(t.Context(), srv.URL, "{ ok }", "{}", headerFlag{"Authorization: Bearer tok"}, &buf)
+		code := runQuery(t.Context(), srv.URL, "{ ok }", "{}", headerFlag{"Authorization: Bearer tok"}, &buf, false, "")
 		is.Equal(t, 0, code)
 		is.Equal(t, "Bearer tok", gotAuth)
 	})
@@ -175,8 +181,57 @@ func TestRunQuery(t *testing.T) {
 		t.Cleanup(srv.Close)
 
 		var buf bytes.Buffer
-		code := runQuery(t.Context(), srv.URL, "{ me { id } }", "{}", nil, &buf)
+		code := runQuery(t.Context(), srv.URL, "{ me { id } }", "{}", nil, &buf, false, "")
 		is.Equal(t, 1, code)
+	})
+
+	t.Run("compact flag produces single-line output", func(t *testing.T) {
+		srv := gqlServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			gqlRespond(w, map[string]any{"hello": "world"}, nil)
+		})
+
+		var buf bytes.Buffer
+		code := runQuery(t.Context(), srv.URL, "{ hello }", "{}", nil, &buf, true, "")
+		is.Equal(t, 0, code)
+		lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+		is.Equal(t, 1, len(lines))
+	})
+
+	t.Run("sends operation name to the server", func(t *testing.T) {
+		var gotOpName string
+		srv := gqlServer(t, func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				OperationName string `json:"operationName"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			gotOpName = body.OperationName
+			gqlRespond(w, map[string]any{"ok": true}, nil)
+		})
+
+		var buf bytes.Buffer
+		code := runQuery(t.Context(), srv.URL, "query MyOp { ok }", "{}", nil, &buf, false, "MyOp")
+		is.Equal(t, 0, code)
+		is.Equal(t, "MyOp", gotOpName)
+	})
+}
+
+func TestRunIntrospect(t *testing.T) {
+	t.Run("sends introspection query and returns schema data", func(t *testing.T) {
+		var gotQuery string
+		srv := gqlServer(t, func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Query string `json:"query"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			gotQuery = body.Query
+			gqlRespond(w, map[string]any{"__schema": map[string]any{"queryType": map[string]any{"name": "Query"}}}, nil)
+		})
+
+		var buf bytes.Buffer
+		code := runIntrospect(t.Context(), srv.URL, nil, &buf, false)
+		is.Equal(t, 0, code)
+		is.True(t, strings.Contains(gotQuery, "__schema"))
+		is.True(t, strings.Contains(buf.String(), `"__schema"`))
 	})
 }
 

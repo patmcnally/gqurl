@@ -13,7 +13,7 @@ import (
 	graphql "github.com/hasura/go-graphql-client"
 )
 
-func runQuery(ctx context.Context, endpoint, query, variables string, headers headerFlag, out io.Writer) int {
+func runQuery(ctx context.Context, endpoint, query, variables string, headers headerFlag, out io.Writer, compact bool, operationName string) int {
 	vars, err := parseVariables(variables)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -30,10 +30,15 @@ func runQuery(ctx context.Context, endpoint, query, variables string, headers he
 			}
 		})
 
-	data, err := client.ExecRaw(ctx, query, vars)
+	var opts []graphql.Option
+	if operationName != "" {
+		opts = append(opts, graphql.OperationName(operationName))
+	}
+
+	data, err := client.ExecRaw(ctx, query, vars, opts...)
 	// Print data first — partial results arrive alongside errors.
 	if len(data) > 0 {
-		printJSON(out, data)
+		printJSON(out, data, compact)
 	}
 	if err != nil {
 		printGraphQLError(err)
@@ -42,7 +47,7 @@ func runQuery(ctx context.Context, endpoint, query, variables string, headers he
 	return 0
 }
 
-func runSubscription(ctx context.Context, endpoint, query, variables string, headers headerFlag, out io.Writer) int {
+func runSubscription(ctx context.Context, endpoint, query, variables string, headers headerFlag, out io.Writer, compact bool, operationName string) int {
 	vars, err := parseVariables(variables)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -59,12 +64,17 @@ func runSubscription(ctx context.Context, endpoint, query, variables string, hea
 			return err
 		})
 
+	var opts []graphql.Option
+	if operationName != "" {
+		opts = append(opts, graphql.OperationName(operationName))
+	}
+
 	_, err = client.Exec(query, vars, func(data []byte, err error) error {
 		if err != nil {
 			printGraphQLError(err)
 			return nil
 		}
-		printJSON(out, data)
+		printJSON(out, data, compact)
 		return nil
 	})
 	if err != nil {
@@ -133,7 +143,7 @@ func parseHeaders(headers headerFlag) http.Header {
 	return h
 }
 
-func printJSON(w io.Writer, data []byte) {
+func printJSON(w io.Writer, data []byte, compact bool) {
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
 		w.Write(data)
@@ -141,6 +151,8 @@ func printJSON(w io.Writer, data []byte) {
 		return
 	}
 	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
+	if !compact {
+		enc.SetIndent("", "  ")
+	}
 	_ = enc.Encode(v)
 }
