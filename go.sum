@@ -4,3 +4,5 @@ github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/hasura/go-graphql-client v0.16.0 h1:DQLfp+djj4j5NPdJkGYym8J55hpm5etML1zqgco78Qc=
 github.com/hasura/go-graphql-client v0.16.0/go.mod h1:z/sO2T0zI+HnPNIevQcs+7xA6/gDOc8hgHMrNBzfL2c=
+maragu.dev/is v0.3.1 h1:1sj4Ewc9Ecqtvp1Aro+kRCpnuu4D5CB8w//GOfM7jFs=
+maragu.dev/is v0.3.1/go.mod h1:bviaM5S0fBshCw7wuumFGTju/izopZ/Yvq4g7Klc7y8=
