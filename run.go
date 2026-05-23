@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+
 )
 
 func run() int {
@@ -23,17 +24,19 @@ func run() int {
 	}
 
 	var (
-		query      string
-		variables  string
-		headers    headerFlag
-		headerFile string
+		query        string
+		variables    string
+		headers      headerFlag
+		headerFile   string
+		outputFile   string
 		subscription bool
 	)
 
 	fs.StringVar(&query, "q", "", "GraphQL query or mutation (use @- for stdin, @file for a file)")
 	fs.StringVar(&variables, "v", "{}", "JSON variables object")
 	fs.Var(&headers, "H", "HTTP header, e.g. 'Authorization: Bearer token' (repeatable)")
-	fs.StringVar(&headerFile, "header-file", "", "JSON file of {\"Header\": \"value\"} pairs")
+	fs.StringVar(&headerFile, "header-file", "", "JSON file of {\"Header\": \"value\"} pairs (values support $ENV expansion)")
+	fs.StringVar(&outputFile, "o", "", "Write JSON output to file instead of stdout")
 	fs.BoolVar(&subscription, "subscription", false, "Run query as a subscription")
 
 	// Pull the endpoint out before flag parsing so flags may appear in any position.
@@ -69,14 +72,41 @@ func run() int {
 		return 1
 	}
 
+	out, err := openOutput(outputFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	defer out.Close()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	if subscription {
-		return runSubscription(ctx, endpoint, resolvedQuery, variables, headers)
+		return runSubscription(ctx, endpoint, resolvedQuery, variables, headers, out)
 	}
-	return runQuery(ctx, endpoint, resolvedQuery, variables, headers)
+	return runQuery(ctx, endpoint, resolvedQuery, variables, headers, out)
 }
+
+// openOutput returns a write-closer for the given path, or a no-op-close
+// wrapper around os.Stdout when path is empty.
+func openOutput(path string) (interface {
+	io.Writer
+	Close() error
+}, error) {
+	if path == "" {
+		return nopCloser{os.Stdout}, nil
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening output file: %w", err)
+	}
+	return f, nil
+}
+
+type nopCloser struct{ io.Writer }
+
+func (nopCloser) Close() error { return nil }
 
 // resolveQuery returns the query string, reading from stdin or a file when the
 // value begins with @.

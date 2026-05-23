@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	graphql "github.com/hasura/go-graphql-client"
 )
 
-func runQuery(ctx context.Context, endpoint, query, variables string, headers headerFlag) int {
+func runQuery(ctx context.Context, endpoint, query, variables string, headers headerFlag, out io.Writer) int {
 	vars, err := parseVariables(variables)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -32,7 +33,7 @@ func runQuery(ctx context.Context, endpoint, query, variables string, headers he
 	data, err := client.ExecRaw(ctx, query, vars)
 	// Print data first — partial results arrive alongside errors.
 	if len(data) > 0 {
-		printJSON(data)
+		printJSON(out, data)
 	}
 	if err != nil {
 		printGraphQLError(err)
@@ -41,7 +42,7 @@ func runQuery(ctx context.Context, endpoint, query, variables string, headers he
 	return 0
 }
 
-func runSubscription(ctx context.Context, endpoint, query, variables string, headers headerFlag) int {
+func runSubscription(ctx context.Context, endpoint, query, variables string, headers headerFlag, out io.Writer) int {
 	vars, err := parseVariables(variables)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -63,7 +64,7 @@ func runSubscription(ctx context.Context, endpoint, query, variables string, hea
 			printGraphQLError(err)
 			return nil
 		}
-		printJSON(data)
+		printJSON(out, data)
 		return nil
 	})
 	if err != nil {
@@ -132,14 +133,14 @@ func parseHeaders(headers headerFlag) http.Header {
 	return h
 }
 
-func printJSON(data []byte) {
+func printJSON(w io.Writer, data []byte) {
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
-		os.Stdout.Write(data)
-		fmt.Println()
+		w.Write(data)
+		fmt.Fprintln(w)
 		return
 	}
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
 }

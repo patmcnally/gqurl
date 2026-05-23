@@ -40,7 +40,7 @@ func loadHeaderFile(path string) (headerFlag, error) {
 
 	out := make(headerFlag, 0, len(obj))
 	for k, v := range obj {
-		out = append(out, k+": "+v)
+		out = append(out, k+": "+os.Expand(v, os.Getenv))
 	}
 	return out, nil
 }
