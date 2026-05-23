@@ -23,15 +23,17 @@ func run() int {
 	}
 
 	var (
-		query        string
-		variables    string
-		headers      headerFlag
+		query      string
+		variables  string
+		headers    headerFlag
+		headerFile string
 		subscription bool
 	)
 
 	fs.StringVar(&query, "q", "", "GraphQL query or mutation (use @- for stdin, @file for a file)")
 	fs.StringVar(&variables, "v", "{}", "JSON variables object")
 	fs.Var(&headers, "H", "HTTP header, e.g. 'Authorization: Bearer token' (repeatable)")
+	fs.StringVar(&headerFile, "header-file", "", "JSON file of {\"Header\": \"value\"} pairs")
 	fs.BoolVar(&subscription, "subscription", false, "Run query as a subscription")
 
 	// Pull the endpoint out before flag parsing so flags may appear in any position.
@@ -49,6 +51,16 @@ func run() int {
 	if query == "" {
 		fmt.Fprintln(os.Stderr, "error: -q query is required")
 		return 1
+	}
+
+	// Merge headers: file headers first so that -H flags take precedence.
+	if headerFile != "" {
+		fileHeaders, err := loadHeaderFile(headerFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return 1
+		}
+		headers = append(fileHeaders, headers...)
 	}
 
 	resolvedQuery, err := resolveQuery(query)
